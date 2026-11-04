@@ -1,5 +1,6 @@
 package pia.gui;
-
+ 
+import pia.conexion.LecturaDAO;
 import pia.entidades.Alerta;
 import pia.entidades.Lectura;
 import pia.entidades.PuntoMonitoreo;
@@ -7,10 +8,12 @@ import pia.estructuras.ColaCircularLecturas;
 import pia.estructuras.ColaPrioridadAlertas;
 import pia.estructuras.Grafo;
 import pia.estructuras.ListaDobleAlertas;
-
+ 
+import java.sql.SQLException;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Date;
-
+ 
 /**
  * Une todas las estructuras de datos y guarda el estado del sistema.
  * Todas las ventanas comparten UN solo controlador.
@@ -20,13 +23,14 @@ public class ControladorSistema {
     private ColaPrioridadAlertas colaAlertas;
     private ListaDobleAlertas historialAlertas;
     private Grafo grafoCienaga;
-
+ 
     private int idLecturas = 1;
     private int idAlertas = 1;
-
+    private int ultimoIdBD = 0; // último ID leído de Oracle
+ 
     // Registro de actividad (se comparte entre ventanas)
     private StringBuilder registro;
-
+ 
     public ControladorSistema() {
         colaLecturas = new ColaCircularLecturas(10);
         colaAlertas = new ColaPrioridadAlertas(20);
@@ -35,25 +39,25 @@ public class ControladorSistema {
         registro = new StringBuilder();
         inicializarGrafo();
     }
-
+ 
     private void inicializarGrafo() {
         grafoCienaga.agregarPunto(new PuntoMonitoreo(1, "Desembocadura", "Norte"));
         grafoCienaga.agregarPunto(new PuntoMonitoreo(2, "Manglar norte", "Noroeste"));
         grafoCienaga.agregarPunto(new PuntoMonitoreo(3, "Centro", "Centro de Ciénaga"));
         grafoCienaga.agregarPunto(new PuntoMonitoreo(4, "Arroyo León", "Sur"));
         grafoCienaga.agregarPunto(new PuntoMonitoreo(5, "Las Flores", "Este"));
-
+ 
         // Conexiones de prueba
         grafoCienaga.agregarConexion(1, 2, 2.5);
         grafoCienaga.agregarConexion(2, 3, 3.0);
         grafoCienaga.agregarConexion(3, 4, 4.2);
         grafoCienaga.agregarConexion(3, 5, 2.1);
     }
-
+ 
     // ---------------------------------------------------------------
     // Lecturas y alertas
     // ---------------------------------------------------------------
-
+ 
     public void registrarLectura(int idPunto, String parametro, double valor) {
         String fecha = new SimpleDateFormat("HH:mm:ss").format(new Date());
         Lectura l = new Lectura(idLecturas++, idPunto, parametro, valor, fecha);
@@ -61,7 +65,7 @@ public class ControladorSistema {
         agregarLog("Lectura #" + l.getId() + " encolada (punto " + idPunto + ")");
         evaluarLectura(l);
     }
-
+ 
     private void evaluarLectura(Lectura l) {
         String severidad = "";
         // Reglas simples para la demostración
@@ -78,7 +82,7 @@ public class ControladorSistema {
             if (l.getValor() > 40) severidad = "MEDIA";
             else if (l.getValor() > 35) severidad = "BAJA";
         }
-
+ 
         if (!severidad.isEmpty()) {
             Alerta a = new Alerta(idAlertas++, l.getIdPunto(), l.getParametro(), l.getValor(), severidad, l.getFechaHora());
             colaAlertas.insertar(a);
@@ -86,25 +90,44 @@ public class ControladorSistema {
             agregarLog("Alerta " + severidad + " punto " + l.getIdPunto());
         }
     }
-
+ 
     // Envía una lectura escrita a mano. Devuelve {lecturas, alertas, afectados}
     public int[] enviarLecturaManual(int idPunto, String parametro, double valor) {
         int alertasAntes = idAlertas;
         registrarLectura(idPunto, parametro, valor);
         return new int[]{1, idAlertas - alertasAntes, 0};
     }
-
+ 
+    // Lee de Oracle las lecturas nuevas y las registra en el sistema.
+    // Devuelve {lecturas cargadas, alertas nuevas}
+    public int[] cargarLecturasDesdeBD() throws SQLException {
+        ArrayList<Lectura> nuevas = LecturaDAO.obtenerNuevas(ultimoIdBD);
+        int alertasAntes = idAlertas;
+ 
+        int i = 0;
+        while (i < nuevas.size()) {
+            Lectura l = nuevas.get(i);
+            registrarLectura(l.getIdPunto(), l.getParametro(), l.getValor());
+            if (l.getId() > ultimoIdBD) {
+                ultimoIdBD = l.getId();
+            }
+            i++;
+        }
+        agregarLog("BD: " + nuevas.size() + " lecturas cargadas");
+        return new int[]{nuevas.size(), idAlertas - alertasAntes};
+    }
+ 
     // Lluvia fuerte: baja el oxígeno en el punto y en los vecinos (BFS).
     // Devuelve {lecturas nuevas, alertas nuevas, puntos afectados}
     public int[] simularLluvia(int idOrigen, int intensidad, int niveles) {
         int lecturasAntes = idLecturas;
         int alertasAntes = idAlertas;
-
+ 
         double oxigeno = 6.0 - intensidad * 0.045;
         oxigeno = Math.round(oxigeno * 10) / 10.0;
-
+ 
         registrarLectura(idOrigen, "Oxígeno disuelto", oxigeno);
-
+ 
         int[] afectados = grafoCienaga.calcularAfectadosBFS(idOrigen, niveles);
         int i = 0;
         while (i < afectados.length) {
@@ -115,17 +138,17 @@ public class ControladorSistema {
         agregarLog("Lluvia fuerte simulada en punto " + idOrigen);
         return new int[]{idLecturas - lecturasAntes, idAlertas - alertasAntes, afectados.length};
     }
-
+ 
     // Vertimiento: sube los coliformes en el punto y en los vecinos (BFS).
     public int[] simularVertimiento(int idOrigen, int intensidad, int niveles) {
         int lecturasAntes = idLecturas;
         int alertasAntes = idAlertas;
-
+ 
         double coliformes = 3000 + intensidad * 80;
         coliformes = Math.round(coliformes);
-
+ 
         registrarLectura(idOrigen, "Coliformes", coliformes);
-
+ 
         int[] afectados = grafoCienaga.calcularAfectadosBFS(idOrigen, niveles);
         int i = 0;
         while (i < afectados.length) {
@@ -135,7 +158,7 @@ public class ControladorSistema {
         agregarLog("Vertimiento simulado en punto " + idOrigen);
         return new int[]{idLecturas - lecturasAntes, idAlertas - alertasAntes, afectados.length};
     }
-
+ 
     // Atiende (extrae) la alerta de mayor prioridad
     public Alerta atenderSiguiente() {
         Alerta extraida = colaAlertas.extraerMaximo();
@@ -144,7 +167,7 @@ public class ControladorSistema {
         }
         return extraida;
     }
-
+ 
     // Saca la lectura más antigua del búfer
     public Lectura desencolarLectura() {
         Lectura l = colaLecturas.desencolar();
@@ -153,7 +176,7 @@ public class ControladorSistema {
         }
         return l;
     }
-
+ 
     // Borra una alerta del historial (lista doble)
     public boolean eliminarDelHistorial(int id) {
         boolean ok = historialAlertas.eliminarPorId(id);
@@ -162,18 +185,18 @@ public class ControladorSistema {
         }
         return ok;
     }
-
+ 
     // ---------------------------------------------------------------
     // Consultas para las ventanas
     // ---------------------------------------------------------------
-
+ 
     public static int valorSeveridad(String severidad) {
         if ("CRITICA".equals(severidad)) return 3;
         if ("MEDIA".equals(severidad)) return 2;
         if ("BAJA".equals(severidad)) return 1;
         return 0;
     }
-
+ 
     // Copia las alertas pendientes y las ordena de mayor a menor severidad
     // (la cola de prioridad NO se modifica)
     public Alerta[] obtenerAlertasOrdenadas() {
@@ -185,7 +208,7 @@ public class ControladorSistema {
             copia[i] = heap[i];
             i++;
         }
-
+ 
         // Ordenamiento burbuja: severidad mayor primero, y a igualdad el id menor primero
         boolean huboCambio = true;
         while (huboCambio) {
@@ -211,7 +234,7 @@ public class ControladorSistema {
         }
         return copia;
     }
-
+ 
     // Estado general: Normal, Precaución o Crítico
     public String getEstadoGeneral() {
         Alerta[] heap = colaAlertas.getHeap();
@@ -229,7 +252,7 @@ public class ControladorSistema {
         if (maxima >= 1) return "Precaución";
         return "Normal";
     }
-
+ 
     public PuntoMonitoreo buscarPunto(int id) {
         PuntoMonitoreo[] puntos = grafoCienaga.obtenerTodosLosPuntos();
         int i = 0;
@@ -241,7 +264,7 @@ public class ControladorSistema {
         }
         return null;
     }
-
+ 
     public String nombrePunto(int id) {
         PuntoMonitoreo p = buscarPunto(id);
         if (p == null) {
@@ -249,26 +272,26 @@ public class ControladorSistema {
         }
         return p.getNombre();
     }
-
+ 
     public static String unidadParametro(String parametro) {
         if ("Oxígeno disuelto".equals(parametro)) return "mg/L";
         if ("Coliformes".equals(parametro)) return "NMP/100 mL";
         return "ppt";
     }
-
+ 
     // ---------------------------------------------------------------
     // Registro de actividad
     // ---------------------------------------------------------------
-
+ 
     public void agregarLog(String mensaje) {
         String hora = new SimpleDateFormat("HH:mm:ss").format(new Date());
         registro.append("> ").append(hora).append(" ").append(mensaje).append("\n");
     }
-
+ 
     public String getRegistro() {
         return registro.toString();
     }
-
+ 
     // Getters para compartir el estado
     public Grafo getGrafo() { return grafoCienaga; }
     public ColaCircularLecturas getColaLecturas() { return colaLecturas; }

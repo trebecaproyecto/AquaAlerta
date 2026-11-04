@@ -10,9 +10,9 @@ import java.sql.SQLException;
 
 public class ConexionBD {
     // Parámetros de conexión para Oracle XE Local
-    private static final String URL = "jdbc:oracle:thin:@localhost:1521:XE"; // O :ORCL segun tu instalacion
-    private static final String USUARIO = "TU_USUARIO_ORACLE"; // Ej. SYSTEM o tu esquema
-    private static final String CLAVE = "TU_CONTRASEÑA";
+    private static final String URL = "jdbc:oracle:thin:@//localhost:1521/FREEPDB1"; // O :ORCL segun tu instalacion
+    private static final String USUARIO = "system"; // Ej. SYSTEM o tu esquema
+    private static final String CLAVE = "240907";
 
     public static Connection obtenerConexion() {
         Connection conn = null;
@@ -42,4 +42,8 @@ public class ConexionBD {
             }
         }
     }
+    public static void main(String[] args) {
+    Connection conn = obtenerConexion();
+    cerrarConexion(conn);
+}
 }

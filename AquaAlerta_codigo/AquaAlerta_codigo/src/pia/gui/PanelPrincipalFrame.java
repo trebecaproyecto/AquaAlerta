@@ -133,6 +133,9 @@ public class PanelPrincipalFrame extends JFrame implements Actualizable {
 
         JButton btnEnviar = UIUtils.crearBoton("Enviar lectura", UIUtils.COLOR_NAVY, Color.WHITE, 100, 38);
         form.add(btnEnviar);
+
+        JButton btnCargarBD = UIUtils.crearBoton("📥 Cargar datos de la BD", UIUtils.COLOR_TEAL, Color.WHITE, 100, 38);
+        form.add(btnCargarBD);
         tarjeta.add(form, BorderLayout.CENTER);
 
         // Al cambiar el parámetro se pone un valor de ejemplo
@@ -169,6 +172,22 @@ public class PanelPrincipalFrame extends JFrame implements Actualizable {
                 actualizarTodo();
             } catch (NumberFormatException ex) {
                 JOptionPane.showMessageDialog(this, "Escribe un número válido (ej. 2.1)");
+            }
+        });
+
+        btnCargarBD.addActionListener(e -> {
+            try {
+                int[] r = controlador.cargarLecturasDesdeBD();
+                actualizarTodo();
+                if (r[0] == 0) {
+                    JOptionPane.showMessageDialog(this, "No hay lecturas nuevas en la base de datos");
+                } else {
+                    JOptionPane.showMessageDialog(this, "Se cargaron " + r[0] + " lecturas.\nAlertas generadas: " + r[1]);
+                }
+            } catch (Exception ex) {
+                ex.printStackTrace();
+                JOptionPane.showMessageDialog(this, "Error al leer la base de datos:\n" + ex.getMessage(),
+                        "Error", JOptionPane.ERROR_MESSAGE);
             }
         });
         return tarjeta;
